@@ -1,0 +1,365 @@
+openapi: 3.0.3
+info:
+  title: Loyalty Points API
+  description: |
+    REST API for managing user loyalty points. Supports checking balances, redeeming points, and viewing redemption history.
+    
+    **Note**: This is a demo implementation with in-memory storage and hardcoded stub data. No authentication required.
+  version: 1.0.0
+  contact:
+    name: Loyalty Service Team
+
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+
+tags:
+  - name: Loyalty
+    description: Loyalty points operations
+
+paths:
+  /loyalty/{userId}/balance:
+    get:
+      summary: Get loyalty points balance
+      description: |
+        Retrieves the current loyalty points balance for a user. 
+        Balance is calculated in real-time as: SUM(active orders.points) - SUM(redemptions.points).
+        Cancelled and refunded orders are excluded from the calculation.
+      operationId: getBalance
+      tags:
+        - Loyalty
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: Unique identifier for the user
+          schema:
+            type: string
+            example: alice
+      responses:
+        '200':
+          description: Successfully retrieved balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceResponse'
+              examples:
+                userWithPoints:
+                  summary: User with available points
+                  value:
+                    userId: alice
+                    balance: 200
+                    earnedPoints: 300
+                    redeemedPoints: 100
+                userWithZeroPoints:
+                  summary: User with no points
+                  value:
+                    userId: bob
+                    balance: 0
+                    earnedPoints: 0
+                    redeemedPoints: 0
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                statusCode: 404
+                message: User alice not found
+                error: Not Found
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /loyalty/{userId}/redeem:
+    post:
+      summary: Redeem loyalty points
+      description: |
+        Redeems a specified amount of loyalty points for a user.
+        Validates that the user has sufficient available points before processing.
+        Returns the redemption record and updated balance.
+      operationId: redeemPoints
+      tags:
+        - Loyalty
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: Unique identifier for the user
+          schema:
+            type: string
+            example: alice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RedeemRequest'
+            examples:
+              validRedemption:
+                summary: Valid redemption request
+                value:
+                  points: 50
+              smallRedemption:
+                summary: Small redemption
+                value:
+                  points: 10
+      responses:
+        '201':
+          description: Redemption successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RedemptionResponse'
+              example:
+                redemptionId: 123e4567-e89b-12d3-a456-426614174000
+                userId: alice
+                points: 50
+                timestamp: '2025-01-21T10:30:00.000Z'
+                newBalance: 150
+        '400':
+          description: Invalid request (e.g., negative points, validation error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                negativePoints:
+                  summary: Negative points requested
+                  value:
+                    statusCode: 400
+                    message: points must be a positive number
+                    error: Bad Request
+                zeroPoints:
+                  summary: Zero points requested
+                  value:
+                    statusCode: 400
+                    message: points must not be less than 1
+                    error: Bad Request
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                statusCode: 404
+                message: User alice not found
+                error: Not Found
+        '409':
+          description: Insufficient points for redemption
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                statusCode: 409
+                message: 'Insufficient points. Available: 50, Requested: 100'
+                error: Conflict
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /loyalty/{userId}/redemptions:
+    get:
+      summary: Get redemption history
+      description: |
+        Retrieves the full redemption history for a user, ordered by timestamp (newest first).
+        Returns all past redemptions with their amounts and timestamps.
+      operationId: getRedemptionHistory
+      tags:
+        - Loyalty
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          description: Unique identifier for the user
+          schema:
+            type: string
+            example: alice
+      responses:
+        '200':
+          description: Successfully retrieved redemption history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RedemptionHistoryResponse'
+              examples:
+                multipleRedemptions:
+                  summary: User with redemption history
+                  value:
+                    userId: eve
+                    redemptions:
+                      - redemptionId: red-e2
+                        userId: eve
+                        points: 75
+                        timestamp: '2025-01-19T16:45:00.000Z'
+                      - redemptionId: red-e1
+                        userId: eve
+                        points: 25
+                        timestamp: '2025-01-18T12:00:00.000Z'
+                noRedemptions:
+                  summary: User with no redemptions
+                  value:
+                    userId: bob
+                    redemptions: []
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                statusCode: 404
+                message: User alice not found
+                error: Not Found
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    BalanceResponse:
+      type: object
+      required:
+        - userId
+        - balance
+        - earnedPoints
+        - redeemedPoints
+      properties:
+        userId:
+          type: string
+          description: User identifier
+          example: alice
+        balance:
+          type: integer
+          description: Available loyalty points (earned - redeemed)
+          minimum: 0
+          example: 200
+        earnedPoints:
+          type: integer
+          description: Total points earned from active orders
+          minimum: 0
+          example: 300
+        redeemedPoints:
+          type: integer
+          description: Total points redeemed
+          minimum: 0
+          example: 100
+
+    RedeemRequest:
+      type: object
+      required:
+        - points
+      properties:
+        points:
+          type: integer
+          description: Number of points to redeem
+          minimum: 1
+          example: 50
+
+    RedemptionResponse:
+      type: object
+      required:
+        - redemptionId
+        - userId
+        - points
+        - timestamp
+        - newBalance
+      properties:
+        redemptionId:
+          type: string
+          description: Unique identifier for this redemption (UUID v4)
+          format: uuid
+          example: 123e4567-e89b-12d3-a456-426614174000
+        userId:
+          type: string
+          description: User who redeemed points
+          example: alice
+        points:
+          type: integer
+          description: Number of points redeemed
+          minimum: 1
+          example: 50
+        timestamp:
+          type: string
+          format: date-time
+          description: When the redemption occurred (ISO 8601)
+          example: '2025-01-21T10:30:00.000Z'
+        newBalance:
+          type: integer
+          description: User's balance after this redemption
+          minimum: 0
+          example: 150
+
+    RedemptionHistoryResponse:
+      type: object
+      required:
+        - userId
+        - redemptions
+      properties:
+        userId:
+          type: string
+          description: User identifier
+          example: alice
+        redemptions:
+          type: array
+          description: List of redemptions ordered by timestamp (newest first)
+          items:
+            $ref: '#/components/schemas/RedemptionRecord'
+
+    RedemptionRecord:
+      type: object
+      required:
+        - redemptionId
+        - userId
+        - points
+        - timestamp
+      properties:
+        redemptionId:
+          type: string
+          description: Unique identifier for this redemption
+          example: red-a1
+        userId:
+          type: string
+          description: User who redeemed points
+          example: alice
+        points:
+          type: integer
+          description: Number of points redeemed
+          minimum: 1
+          example: 100
+        timestamp:
+          type: string
+          format: date-time
+          description: When the redemption occurred (ISO 8601)
+          example: '2025-01-20T10:00:00.000Z'
+
+    ErrorResponse:
+      type: object
+      required:
+        - statusCode
+        - message
+      properties:
+        statusCode:
+          type: integer
+          description: HTTP status code
+          example: 404
+        message:
+          type: string
+          description: Error message
+          example: User alice not found
+        error:
+          type: string
+          description: Error type
+          example: Not Found

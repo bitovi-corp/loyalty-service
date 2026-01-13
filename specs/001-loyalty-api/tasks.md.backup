@@ -1,0 +1,361 @@
+# Tasks: Loyalty Points API Service
+
+**Input**: Design documents from `/specs/001-loyalty-api/`
+**Prerequisites**: plan.md ✅, spec.md ✅, research.md ✅, data-model.md ✅, contracts/ ✅
+
+**Tests**: Tests are NOT explicitly requested in the feature specification. This implementation follows a build-first approach. Unit/integration tests can be added in the Polish phase if needed.
+
+**Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
+
+## Format: `- [ ] [ID] [P?] [Story?] Description`
+
+- **[P]**: Can run in parallel (different files, no dependencies)
+- **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
+- Include exact file paths in descriptions
+
+## Path Conventions
+
+Based on plan.md, this is a single NestJS API service with:
+- Source code: `src/` at repository root
+- Tests: `test/` at repository root
+- Database: PostgreSQL with Prisma ORM
+
+---
+
+## Phase 1: Setup (Shared Infrastructure)
+
+**Purpose**: Project initialization and basic structure
+
+- [ ] T001 Initialize NestJS project with TypeScript 5.x and strict mode in package.json and tsconfig.json
+- [ ] T002 [P] Install core dependencies (@nestjs/core, @nestjs/common, @nestjs/platform-express) in package.json
+- [ ] T003 [P] Install Prisma dependencies (@prisma/client, prisma as dev) in package.json
+- [ ] T004 [P] Install validation dependencies (class-validator, class-transformer) in package.json
+- [ ] T005 [P] Install testing dependencies (jest, @nestjs/testing, supertest) in package.json
+- [ ] T006 Configure TypeScript with strict mode and target ES2022 in tsconfig.json
+- [ ] T007 [P] Setup ESLint and Prettier configuration in .eslintrc.js and .prettierrc
+- [ ] T008 Create NestJS bootstrap file in src/main.ts with port 3000
+- [ ] T009 Create root application module in src/app.module.ts
+
+---
+
+## Phase 2: Foundational (Blocking Prerequisites)
+
+**Purpose**: Core infrastructure that MUST be complete before ANY user story can be implemented
+
+**⚠️ CRITICAL**: No user story work can begin until this phase is complete
+
+- [ ] T010 Initialize Prisma with PostgreSQL configuration in prisma/schema.prisma
+- [ ] T011 Create Order entity schema in prisma/schema.prisma with fields: id, orderId, userId, points, createdAt
+- [ ] T012 Create Redemption entity schema in prisma/schema.prisma with fields: id, userId, points, createdAt, idempotencyKey
+- [ ] T013 Add composite unique constraint on (userId, orderId) to Order schema in prisma/schema.prisma
+- [ ] T014 Add indexes for userId on both Order and Redemption in prisma/schema.prisma
+- [ ] T015 Add index for createdAt on Redemption in prisma/schema.prisma
+- [ ] T016 Generate Prisma Client with command: npx prisma generate
+- [ ] T017 Create initial database migration with command: npx prisma migrate dev --name init
+- [ ] T018 Create Prisma module in src/prisma/prisma.module.ts for dependency injection
+- [ ] T019 Create Prisma service in src/prisma/prisma.service.ts extending PrismaClient
+- [ ] T020 [P] Create global exception filter in src/common/filters/http-exception.filter.ts
+- [ ] T021 [P] Create validation pipe configuration in src/main.ts
+- [ ] T022 Create environment configuration module in src/config/database.config.ts for DATABASE_URL
+- [ ] T023 Create .env.example file with DATABASE_URL, PORT, NODE_ENV variables
+
+**Checkpoint**: Foundation ready - user story implementation can now begin in parallel
+
+---
+
+## Phase 3: User Story 1 - Check Available Loyalty Points Balance (Priority: P1) 🎯 MVP
+
+**Goal**: Allow users to retrieve their current loyalty points balance, calculated in real-time as total earned (from orders) minus total redeemed (from redemptions).
+
+**Independent Test**: Create a user with test orders (300 points earned) and test redemptions (50 points redeemed), then call GET /loyalty/balance/{userId} to verify it returns 250 available points. This story is independently testable as it only reads data and doesn't depend on redemption functionality working.
+
+### DTO Creation for User Story 1
+
+- [ ] T024 [P] [US1] Create BalanceResponseDto in src/loyalty/dto/balance-response.dto.ts with class-validator decorators
+- [ ] T025 [P] [US1] Create OrderResponseDto in src/orders/dto/order-response.dto.ts
+- [ ] T026 [P] [US1] Create CreateOrderRequestDto in src/orders/dto/create-order-request.dto.ts
+
+### Entity/Model Setup for User Story 1
+
+- [ ] T027 [P] [US1] Create Order entity class in src/orders/entities/order.entity.ts mapping to Prisma Order model
+- [ ] T028 [P] [US1] Create Redemption entity class in src/loyalty/entities/redemption.entity.ts mapping to Prisma Redemption model
+
+### Service Layer for User Story 1
+
+- [ ] T029 [US1] Create OrdersService in src/orders/services/orders.service.ts with create and findByUserId methods
+- [ ] T030 [US1] Create LoyaltyService in src/loyalty/services/loyalty.service.ts with calculateBalance method
+- [ ] T031 [US1] Implement real-time balance calculation in LoyaltyService.calculateBalance using SUM aggregation on orders and redemptions
+
+### Controller Layer for User Story 1
+
+- [ ] T032 [US1] Create OrdersController in src/orders/controllers/orders.controller.ts with POST /orders endpoint
+- [ ] T033 [US1] Implement POST /orders endpoint handler in OrdersController calling OrdersService.create
+- [ ] T034 [US1] Add duplicate order detection (409 Conflict) in OrdersService.create method
+- [ ] T035 [US1] Create LoyaltyController in src/loyalty/controllers/loyalty.controller.ts
+- [ ] T036 [US1] Implement GET /loyalty/balance/:userId endpoint in LoyaltyController calling LoyaltyService.calculateBalance
+- [ ] T037 [US1] Add error handling for invalid userId (400 Bad Request) in LoyaltyController
+
+### Module Registration for User Story 1
+
+- [ ] T038 [US1] Create OrdersModule in src/orders/orders.module.ts registering OrdersService and OrdersController
+- [ ] T039 [US1] Create LoyaltyModule in src/loyalty/loyalty.module.ts registering LoyaltyService and LoyaltyController
+- [ ] T040 [US1] Import PrismaModule into OrdersModule in src/orders/orders.module.ts
+- [ ] T041 [US1] Import PrismaModule into LoyaltyModule in src/loyalty/loyalty.module.ts
+- [ ] T042 [US1] Import OrdersModule and LoyaltyModule into AppModule in src/app.module.ts
+
+**Checkpoint**: At this point, User Story 1 should be fully functional and testable independently. Users can create orders (POST /orders) and check their balance (GET /loyalty/balance/:userId).
+
+---
+
+## Phase 4: User Story 2 - Redeem Loyalty Points (Priority: P2)
+
+**Goal**: Allow users with accumulated loyalty points to redeem their points, with validation to ensure they cannot redeem more than their available balance. Supports idempotent retries via optional Idempotency-Key header.
+
+**Independent Test**: Create a user with 300 available points (orders), then call POST /loyalty/redeem with 100 points and verify redemption succeeds with remaining balance 200. Attempt to redeem 300 points and verify it fails with 402 error indicating insufficient points. This story is independently testable by setting up known balances and validating redemption logic.
+
+### DTO Creation for User Story 2
+
+- [ ] T043 [P] [US2] Create RedeemRequestDto in src/loyalty/dto/redeem-request.dto.ts with userId and points validation
+- [ ] T044 [P] [US2] Create RedemptionResponseDto in src/loyalty/dto/redemption-response.dto.ts
+- [ ] T045 [P] [US2] Create InsufficientPointsErrorDto in src/common/dto/insufficient-points-error.dto.ts
+
+### Service Layer for User Story 2
+
+- [ ] T046 [US2] Create RedemptionService in src/loyalty/services/redemption.service.ts
+- [ ] T047 [US2] Implement atomic redeem method in RedemptionService using Prisma transaction
+- [ ] T048 [US2] Add balance validation logic in RedemptionService.redeem (check balance >= redemption amount)
+- [ ] T049 [US2] Add idempotency key checking in RedemptionService.redeem to detect duplicate requests
+- [ ] T050 [US2] Implement InsufficientPointsException in src/common/exceptions/insufficient-points.exception.ts extending HttpException
+- [ ] T051 [US2] Add redemption record creation within transaction in RedemptionService.redeem
+- [ ] T052 [US2] Calculate and return remaining balance after redemption in RedemptionService.redeem
+
+### Controller Layer for User Story 2
+
+- [ ] T053 [US2] Implement POST /loyalty/redeem endpoint in LoyaltyController
+- [ ] T054 [US2] Add Idempotency-Key header extraction in POST /loyalty/redeem handler
+- [ ] T055 [US2] Wire RedemptionService into LoyaltyController constructor
+- [ ] T056 [US2] Add exception handling for InsufficientPointsException returning 402 status in LoyaltyController
+- [ ] T057 [US2] Add validation for negative or zero points in RedeemRequestDto (min: 1)
+
+### Idempotency Support for User Story 2
+
+- [ ] T058 [US2] Create in-memory idempotency cache service in src/common/services/idempotency.service.ts
+- [ ] T059 [US2] Implement cache storage with 24-hour TTL in IdempotencyService
+- [ ] T060 [US2] Integrate IdempotencyService into RedemptionService for duplicate detection
+
+### Module Updates for User Story 2
+
+- [ ] T061 [US2] Register RedemptionService as provider in LoyaltyModule in src/loyalty/loyalty.module.ts
+- [ ] T062 [US2] Register IdempotencyService as provider in AppModule in src/app.module.ts (global scope)
+
+**Checkpoint**: At this point, User Stories 1 AND 2 should both work independently. Users can check balance, redeem points with validation, and retry safely with idempotency keys.
+
+---
+
+## Phase 5: User Story 3 - View Redemption History (Priority: P3)
+
+**Goal**: Allow users to view their complete redemption history ordered by most recent first, with pagination support for users with many redemptions.
+
+**Independent Test**: Create a user with 5 redemptions at different timestamps, then call GET /loyalty/redemptions/{userId} and verify all 5 redemptions are returned in reverse chronological order (newest first). Test pagination by requesting limit=2 and verifying only 2 results are returned. This story is independently testable by creating known redemption data and verifying retrieval and ordering.
+
+### DTO Creation for User Story 3
+
+- [ ] T063 [P] [US3] Create RedemptionRecordDto in src/loyalty/dto/redemption-record.dto.ts
+- [ ] T064 [P] [US3] Create RedemptionHistoryResponseDto in src/loyalty/dto/redemption-history-response.dto.ts
+- [ ] T065 [P] [US3] Create RedemptionHistoryQueryDto in src/loyalty/dto/redemption-history-query.dto.ts with limit and offset validation
+
+### Service Layer for User Story 3
+
+- [ ] T066 [US3] Add getRedemptionHistory method to RedemptionService in src/loyalty/services/redemption.service.ts
+- [ ] T067 [US3] Implement pagination logic in RedemptionService.getRedemptionHistory using Prisma skip/take
+- [ ] T068 [US3] Add ordering by createdAt DESC in RedemptionService.getRedemptionHistory
+- [ ] T069 [US3] Add total count query for pagination metadata in RedemptionService.getRedemptionHistory
+
+### Controller Layer for User Story 3
+
+- [ ] T070 [US3] Implement GET /loyalty/redemptions/:userId endpoint in LoyaltyController
+- [ ] T071 [US3] Add query parameter parsing for limit and offset in GET /loyalty/redemptions/:userId
+- [ ] T072 [US3] Set default pagination values (limit: 50, offset: 0) in RedemptionHistoryQueryDto
+- [ ] T073 [US3] Add max limit validation (max: 100) in RedemptionHistoryQueryDto
+
+**Checkpoint**: All user stories should now be independently functional. Users can check balance (US1), redeem points (US2), and view redemption history (US3).
+
+---
+
+## Phase 6: Polish & Cross-Cutting Concerns
+
+**Purpose**: Improvements that affect multiple user stories
+
+- [ ] T074 [P] Add OpenAPI/Swagger documentation using @nestjs/swagger in src/main.ts
+- [ ] T075 [P] Create health check endpoint GET /health in src/app.controller.ts
+- [ ] T076 [P] Add structured logging with NestJS Logger in LoyaltyService and RedemptionService
+- [ ] T077 [P] Create README.md with setup instructions based on quickstart.md
+- [ ] T078 [P] Add API documentation comments to all controller endpoints
+- [ ] T079 [P] Add JSDoc comments to all service methods
+- [ ] T080 Validate performance: balance queries complete in <2 seconds (SC-001)
+- [ ] T081 Validate performance: redemption processing completes in <3 seconds (SC-002)
+- [ ] T082 Add database indexes verification script for userId and createdAt
+- [ ] T083 Create database seed script in prisma/seed.ts for test data
+- [ ] T084 [P] Add error response DTOs to all controller endpoints
+- [ ] T085 [P] Implement request validation globally in src/main.ts
+- [ ] T086 Run full quickstart.md workflow validation
+- [ ] T087 Add Docker Compose configuration for PostgreSQL in docker-compose.yml
+- [ ] T088 [P] Create .gitignore with node_modules, dist, .env exclusions
+
+---
+
+## Dependencies & Execution Order
+
+### Phase Dependencies
+
+- **Setup (Phase 1)**: No dependencies - can start immediately
+- **Foundational (Phase 2)**: Depends on Setup completion - BLOCKS all user stories
+- **User Stories (Phase 3-5)**: All depend on Foundational phase completion
+  - User stories can proceed in parallel (if staffed)
+  - Or sequentially in priority order (P1 → P2 → P3)
+- **Polish (Phase 6)**: Depends on all user stories being complete
+
+### User Story Dependencies
+
+- **User Story 1 (P1)**: Can start after Foundational (Phase 2) - No dependencies on other stories
+- **User Story 2 (P2)**: Can start after Foundational (Phase 2) - Depends on User Story 1 for balance calculation service (LoyaltyService.calculateBalance is used in redemption validation)
+- **User Story 3 (P3)**: Can start after Foundational (Phase 2) - Depends on User Story 2 for RedemptionService and Redemption entity, but is independently testable
+
+### Within Each User Story
+
+- DTOs can be created in parallel (all marked [P])
+- Entity classes can be created in parallel (all marked [P])
+- Services must be created before controllers that use them
+- Modules must be updated after services and controllers are created
+- Core implementation before integration
+
+### Parallel Opportunities
+
+- **Setup (Phase 1)**: Tasks T002-T005, T007 can run in parallel
+- **Foundational (Phase 2)**: Tasks T020, T021 can run in parallel
+- **User Story 1**: Tasks T024-T026 (DTOs), T027-T028 (entities) can run in parallel
+- **User Story 2**: Tasks T043-T045 (DTOs) can run in parallel
+- **User Story 3**: Tasks T063-T065 (DTOs) can run in parallel
+- **Polish (Phase 6)**: Tasks T074-T079, T084-T085, T088 can run in parallel
+
+---
+
+## Parallel Example: User Story 1
+
+```bash
+# Launch all DTOs for User Story 1 together:
+Task T024: "Create BalanceResponseDto in src/loyalty/dto/balance-response.dto.ts"
+Task T025: "Create OrderResponseDto in src/orders/dto/order-response.dto.ts"
+Task T026: "Create CreateOrderRequestDto in src/orders/dto/create-order-request.dto.ts"
+
+# Launch all entities for User Story 1 together:
+Task T027: "Create Order entity class in src/orders/entities/order.entity.ts"
+Task T028: "Create Redemption entity class in src/loyalty/entities/redemption.entity.ts"
+```
+
+---
+
+## Implementation Strategy
+
+### MVP First (User Story 1 Only)
+
+1. Complete Phase 1: Setup (T001-T009)
+2. Complete Phase 2: Foundational (T010-T023) - CRITICAL, blocks all stories
+3. Complete Phase 3: User Story 1 (T024-T042)
+4. **STOP and VALIDATE**: Test User Story 1 independently
+   - Create orders via POST /orders
+   - Retrieve balance via GET /loyalty/balance/:userId
+   - Verify balance = earned points from orders
+5. Deploy/demo if ready - this is a functional MVP!
+
+**MVP Delivers**: Users can accumulate points from orders and check their balance
+
+### Incremental Delivery
+
+1. **Setup + Foundational** (T001-T023) → Foundation ready
+2. **Add User Story 1** (T024-T042) → Test independently → Deploy/Demo (MVP!)
+   - Delivers: Balance checking for users
+3. **Add User Story 2** (T043-T062) → Test independently → Deploy/Demo
+   - Delivers: Point redemption with validation and idempotency
+4. **Add User Story 3** (T063-T073) → Test independently → Deploy/Demo
+   - Delivers: Redemption history and audit trail
+5. **Polish** (T074-T088) → Final production readiness
+   - Delivers: Documentation, performance validation, deployment tooling
+
+Each story adds value without breaking previous stories.
+
+### Parallel Team Strategy
+
+With multiple developers:
+
+1. **Team completes Setup + Foundational together** (T001-T023)
+2. Once Foundational is done:
+   - **Developer A**: User Story 1 (T024-T042) - Balance checking
+   - **Developer B**: User Story 2 (T043-T062) - Redemption (NOTE: needs T030-T031 from US1 for balance calc)
+   - **Developer C**: User Story 3 (T063-T073) - History (NOTE: needs T046 from US2 for RedemptionService)
+3. **Recommended sequence for parallel work**:
+   - Developer A: Complete US1 first (provides balance calculation needed by US2)
+   - Developer B: Start US2 after T030-T031 complete
+   - Developer C: Start US3 after T046 complete, or work on Polish tasks
+4. Stories integrate naturally through shared services
+
+---
+
+## Task Summary
+
+**Total Tasks**: 88
+
+### By Phase:
+- **Phase 1 (Setup)**: 9 tasks
+- **Phase 2 (Foundational)**: 14 tasks (BLOCKS all user stories)
+- **Phase 3 (User Story 1 - Balance)**: 19 tasks
+- **Phase 4 (User Story 2 - Redemption)**: 20 tasks
+- **Phase 5 (User Story 3 - History)**: 11 tasks
+- **Phase 6 (Polish)**: 15 tasks
+
+### By User Story:
+- **User Story 1**: 19 tasks (T024-T042)
+- **User Story 2**: 20 tasks (T043-T062)
+- **User Story 3**: 11 tasks (T063-T073)
+
+### Parallelizable Tasks: 25 tasks marked [P]
+
+### MVP Scope (User Story 1 Only):
+- **MVP Tasks**: 42 tasks (Setup + Foundational + US1)
+- **MVP Delivers**: Order creation and balance checking
+- **Estimated Effort**: ~60% of total feature effort
+
+---
+
+## Notes
+
+- **[P] tasks**: Different files, no dependencies - can run in parallel
+- **[Story] label**: Maps task to specific user story for traceability
+- **Tests**: Not included as they were not explicitly requested in spec.md
+- **Each user story**: Independently completable and testable
+- **File paths**: All paths follow NestJS conventions per plan.md
+- **Commit strategy**: Commit after each task or logical group
+- **Stop at checkpoints**: Validate story independently before proceeding
+- **Idempotency**: Implemented via in-memory cache (can upgrade to Redis later per YAGNI)
+- **Database**: PostgreSQL + Prisma per research.md Decision 1
+- **Order integration**: Local repository with POST API per research.md Decision 2
+
+---
+
+## Validation Checklist
+
+Before marking the feature complete:
+
+- [ ] All 4 API endpoints working (POST /orders, GET /balance/:userId, POST /redeem, GET /redemptions/:userId)
+- [ ] Balance calculation accurate (SC-003: 99.9% accuracy)
+- [ ] Balance queries complete in <2s (SC-001)
+- [ ] Redemption processing completes in <3s (SC-002)
+- [ ] Insufficient points rejected with 402 error (SC-004: 100% rejection rate)
+- [ ] Idempotency keys prevent duplicate redemptions
+- [ ] No overdraft scenarios possible (SC-007: zero instances)
+- [ ] Redemption history ordered correctly (newest first)
+- [ ] Database indexes present on userId and createdAt
+- [ ] All DTOs validated with class-validator
+- [ ] TypeScript strict mode enabled with no errors
+- [ ] All acceptance scenarios from spec.md pass
+- [ ] Quickstart.md workflow validated end-to-end
